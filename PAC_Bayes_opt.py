@@ -72,7 +72,9 @@ def optimize_quad_PAC_bound_bisection(costs_precomputed, p0, delta):
     min_cost = np.min(C_bar)
     max_cost = np.max(C_bar)
     
-    L_hats = np.linspace(min_cost, max_cost, np.ceil((max_cost-min_cost)/0.001))
+    print(np.ceil((max_cost-min_cost)/0.001))
+    
+    L_hats = np.linspace(min_cost, max_cost, int(np.ceil((max_cost-min_cost)/0.001)))
     R_p0 = np.log(2*np.sqrt(m)/delta)/(2*m)
     
     # Initialize vectors for storing optimal solutions

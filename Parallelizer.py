@@ -6,6 +6,14 @@ import torch
 import os
 import warnings
 warnings.filterwarnings('ignore')
+import pickle
+
+import matlab.engine
+# import line_profiler
+# import atexit
+# profile = line_profiler.LineProfiler()
+# atexit.register(profile.print_stats)
+
 
 class Compute_Loss:
 
@@ -18,7 +26,8 @@ class Compute_Loss:
         self.num_trials = num_trials
         self.num_gpu = num_gpu
         self.start_seed = start_seed
-
+        
+    # @profile
     def compute(self, itr_num, params, mu, std):
 
         example = params['example']
@@ -35,6 +44,11 @@ class Compute_Loss:
             from policy.minitaur_policy import Policy
             policy = Policy()
             policy.share_memory()
+            nets = [policy]            
+        elif example == 'biped':
+            from policy.biped_policy import Policy
+            policy = Policy()
+            policy.share_memory()
             nets = [policy]
             
         # Need this start_method for parallelizing Pytorch models
@@ -48,10 +62,16 @@ class Compute_Loss:
         device = [torch.device('cuda:'+str(i)) for i in range(self.num_gpu)]
 
         # Assumption: num_cpu_cores >= num_gpu
-        device_list = [0] * self.cores
-        for i in range(self.cores):
-            # device_counter[i % self.num_gpu] += 1
-            device_list[i] = i % self.num_gpu
+        if self.num_gpu>0:
+            device = [torch.device('cuda:'+str(i)) for i in range(self.num_gpu)]
+            # Assumption: num_cpu_cores >= num_gpu
+            device_list = [0] * self.cores
+            for i in range(self.cores):
+               # device_counter[i % self.num_gpu] += 1
+               device_list[i] = i % self.num_gpu
+        else:
+            device = [torch.device('cpu')]
+            device_list = [0] * self.cores
 
         for j in range(self.cores):
             
@@ -73,6 +93,10 @@ class Compute_Loss:
             elif example == 'minitaur':
                 process.append(mp.Process(target=self.minitaur_thread, args=(params, nets, device[device_list[j]],
                                                                              mu, std, batch[j], np_seed, torch_seed, 
+                                                                             rd, j)))            
+            elif example == 'biped':
+                process.append(mp.Process(target=self.biped_thread, args=(params, nets, device[device_list[j]],
+                                                                             mu, std, batch[j], np_seed, torch_seed, 
                                                                              rd, j)))
 
             pos += batch[j]
@@ -87,9 +111,11 @@ class Compute_Loss:
         grad_logvar = torch.zeros(std.numel())
         emp_cost = []
         for i in range(self.cores):
+            # print(self.cores)
+            # print(rd)
             grad_mu += rd[i][0]
             grad_logvar += rd[i][1]
-
+            
             # torch.cat misbehaves when there is a 0-dim tensor, hence view
             emp_cost.extend(rd['costs'+str(i)].view(1,rd['costs'+str(i)].numel()))
 
@@ -104,6 +130,98 @@ class Compute_Loss:
     @staticmethod
     def new_seed():
         return int(2 ** 32 * np.random.random_sample())
+    
+    
+    @staticmethod
+    # @profile
+    def biped_thread(params, nets, device, mu, std, batch_size, np_seed, 
+                         torch_seed, rd, proc_num):
+        grad_method = params['grad_method']
+        num_policy_eval = params['num_policy_eval']
+        
+        # p = 'eng'
+        # p = p + str(proc_num)
+        # print(p)
+        # p = matlab.engine.start_matlab(background=True)
+        # print(p)
+        # p.cd('/Users/premchand/Downloads/GitHub/3D-biped/old-code/executable/To python')
+        # data = eng.get_init_data(nargout=11)
+        
+        with open('data.pickle', 'rb') as f:
+            data = pickle.load(f)
+        
+        num_steps = params['num_steps']
+        t0 = data[0]
+        init_state = data[1]
+        Fx0 = torch.as_tensor([[data[9]]])
+        Fy0 = torch.as_tensor([[data[10]]])
+        p_stance_foot0 = data[5]
+        policy = nets[0]
+        
+        from ES_grad import compute_grad_ES
+        from envs.Biped_Env import Environment
+        
+        # creating objects
+        policy_eval_costs = torch.zeros(num_policy_eval*2)
+        grad_mu = torch.zeros(mu.numel())
+        grad_logvar = torch.zeros(std.numel())
+        batch_costs = torch.zeros(batch_size)
+        
+        env = Environment(t0, num_steps, init_state, Fx0, Fy0, p_stance_foot0)
+        
+        # Generate epsilons in here and compute multiple runs for the same environment
+        for i in range(batch_size):
+            torch.manual_seed(torch_seed[i])
+            epsilon = torch.randn((num_policy_eval, mu.numel()))
+            epsilon = torch.cat([epsilon, -epsilon], dim=0)
+            # print(epsilon.shape)
+            # if i>0:
+            
+            np.random.seed(np_seed[i])
+            env.generate_trajectory()
+            
+            for j in range(num_policy_eval*2):
+                if j == num_policy_eval*2:
+                    policy_params = mu
+                else:
+                    policy_params = mu + std*epsilon[j,:]
+
+                policy_params = policy_params.to(device)
+                
+                # LOAD POLICY_PARAMS
+                count = 0
+                for p in policy.parameters():
+                    num_params_p = p.data.numel()
+                    p.data = policy_params[count:count+num_params_p].view(p.data.shape)
+                    count+=num_params_p
+                    
+                cost = env.compute_cost(policy)
+
+                # cost, collision_cost, goal_cost, _ = env.execute_policy(policy,
+                #                                                      env.goal,
+                #                                                      alpha,
+                #                                                      time_step=time_step,
+                #                                                      comp_len=comp_len,
+                #                                                      prim_horizon=prim_horizon,
+                #                                                      image_size=image_size,
+                #                                                      device=device)
+
+                policy_eval_costs[j] = torch.Tensor([cost])
+
+            batch_costs[i] = policy_eval_costs.mean()
+
+            grad_mu_temp, grad_logvar_temp = compute_grad_ES(policy_eval_costs-policy_eval_costs.mean(), 
+                                                             epsilon, std, grad_method)
+                
+            grad_mu += grad_mu_temp
+            grad_logvar += grad_logvar_temp
+
+        # Gradient is computed for 1-loss, so return its negation as the true gradient
+        rd[proc_num] = [grad_mu, grad_logvar]
+
+        # Return the sum of all costs in the batch
+        rd['costs'+str(proc_num)] = batch_costs
+                
 
     @staticmethod
     def quadrotor_thread(params, nets, device, mu, std, batch_size, np_seed, 
@@ -130,18 +248,18 @@ class Compute_Loss:
         each process. The code below suppresses printing these messages.
         Source: https://stackoverflow.com/a/978264'''
         # SUPPRESS PRINTING
-        null_fds = [os.open(os.devnull, os.O_RDWR) for x in range(2)]
-        save = os.dup(1), os.dup(2)
-        os.dup2(null_fds[0], 1)
-        os.dup2(null_fds[1], 2)
+        # null_fds = [os.open(os.devnull, os.O_RDWR) for x in range(2)]
+        # save = os.dup(1), os.dup(2)
+        # os.dup2(null_fds[0], 1)
+        # os.dup2(null_fds[1], 2)
 
         from envs.Quad_Env import Environment
 
         # ENABLE PRINTING
-        os.dup2(save[0], 1)
-        os.dup2(save[1], 2)
-        os.close(null_fds[0])
-        os.close(null_fds[1])
+        # os.dup2(save[0], 1)
+        # os.dup2(save[1], 2)
+        # os.close(null_fds[0])
+        # os.close(null_fds[1])
 
         # creating objects
         policy_eval_costs = torch.zeros(num_policy_eval*2)

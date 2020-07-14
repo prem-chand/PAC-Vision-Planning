@@ -33,6 +33,8 @@ def compute_policy_costs(args):
         from policy.quad_policy import Policy
     elif example == 'minitaur':
         from policy.minitaur_policy import Policy
+    elif example == 'biped':
+        from policy.biped_policy import Policy
     
     # Generate policy
     policy = Policy()
@@ -40,8 +42,11 @@ def compute_policy_costs(args):
     print('Number of Neural Network Parameters:', num_params)
     
     # Load prior
-    mu_pr = torch.load('Weights/mu_'+str(load_prior_from)+'_best.pt')['0']
-    logvar_pr = torch.load('Weights/logvar_'+str(load_prior_from)+'_best.pt')['0']
+    # mu_pr = torch.load('Weights/mu_'+str(load_prior_from)+'_best.pt')['0']
+    # logvar_pr = torch.load('Weights/logvar_'+str(load_prior_from)+'_best.pt')['0']
+    
+    mu_pr = torch.load('Weights/mu_'+str(load_prior_from)+'_current.pt')['0']
+    logvar_pr = torch.load('Weights/logvar_'+str(load_prior_from)+'_current.pt')['0']
     
     mu = mu_pr
     logvar = logvar_pr

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Mon Oct 14 16:23:19 2019
+Created on Tue Jul  7 19:04:55 2020
 
-@author: sushant
+@author: premchand
 """
 
 import warnings
@@ -17,10 +17,6 @@ import sys
 from Parallelizer import Compute_Loss
 from utils.visualize import weight_spread
 warnings.filterwarnings('ignore')
-# import line_profiler
-# import atexit
-# profile = line_profiler.LineProfiler()
-# atexit.register(profile.print_stats)
 
 class train:
 
@@ -109,7 +105,6 @@ class train:
         state_dict['cost_min'] = cost_min
         json.dump(state_dict, open(self.config_file, 'w'), indent=4)
 
-    # @profile
     def opt(self):
 
         optimizer = optim.Adam([ {'params': self.mu, 'lr': self.lr_mu},
@@ -201,8 +196,6 @@ if __name__ == "__main__":
     arg_con = parser.parse_args()
 
     config_file = arg_con.config_file
-    
-    # config_file = 'configs/config_biped.json'
 
     train1 = train(config_file)
     train1.opt()
