@@ -19,9 +19,9 @@ class Policy(nn.Module):
         # state-dim = 18(robot-state) + 2(F_x,F_y)
         super(Policy,self).__init__()
         self.pipe = nn.Sequential(
-            nn.Linear(state_dim,25),
+            nn.Linear(state_dim,64),
             nn.ReLU(),
-            nn.Linear(25,num_prim),
+            nn.Linear(64,num_prim),
             nn.Softmax(dim=1),            
         )
         
