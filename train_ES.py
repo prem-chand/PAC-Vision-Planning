@@ -182,22 +182,22 @@ class train:
 
 if __name__ == "__main__":
 
-    import argparse
+    # import argparse
 
-    def collect_as(coll_type):
-        class Collect_as(argparse.Action):
-            def __call__(self, parser, namespace, values, options_string=None):
-                setattr(namespace, self.dest, coll_type(values))
-        return Collect_as
+    # def collect_as(coll_type):
+    #     class Collect_as(argparse.Action):
+    #         def __call__(self, parser, namespace, values, options_string=None):
+    #             setattr(namespace, self.dest, coll_type(values))
+    #     return Collect_as
 
-    parser = argparse.ArgumentParser(description='PAC-Bayes Optimization')
-    parser.add_argument('--config_file', type=str)
+    # parser = argparse.ArgumentParser(description='PAC-Bayes Optimization')
+    # parser.add_argument('--config_file', type=str)
 
-    arg_con = parser.parse_args()
+    # arg_con = parser.parse_args()
 
-    config_file = arg_con.config_file
+    # config_file = arg_con.config_file
     
-    # config_file = 'configs/config_biped.json'
+    config_file = 'configs/config_biped.json'
 
     train1 = train(config_file)
     train1.opt()

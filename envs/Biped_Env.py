@@ -81,9 +81,9 @@ class Environment():
                 eng.workspace['turn'] = eng.workspace['actions'][0][res1-1]
         
             eng.sim_noise1(nargout = 0)
-            if eng.size(eng.workspace['te1'],1) == 1:            
+            if eng.size(eng.workspace['te1'],1) == 1 and eng.workspace['delta_t'] >= 0.3:            
                 eng.sim_noise2(nargout = 0)
-                if eng.size(eng.workspace['te2'],1) == 1:
+                if eng.size(eng.workspace['te2'],1) == 1 and eng.workspace['delta_t'] >= 0.3:
                     eng.sim_noise3(nargout = 0)
                 else:
                     # eng.workspace['cost'] = 5000/eng.workspace['i']
@@ -111,7 +111,10 @@ class Environment():
             eng.workspace['i'] = eng.workspace['i'] + 1
             # "cost: ", round(eng.workspace['cost'],4),
         # print("Process: ", self.p, "steps: ", int(eng.workspace['i']-1), "tracking error: ", round(eng.workspace['costT'],3))
-        print('Process: {}, steps: {}, tracking error: {:.3f}'.format(self.p, int(eng.workspace['i']-1), eng.workspace['costT']))
+        print('Process: {}, steps: {}, pos tracking: {:.3f}, vel tracking: {:.3f}, max force: {:.3f}, turn_sequence: {}'.format(self.p, 
+                        int(eng.workspace['i']-1), eng.workspace['costT'], eng.workspace['costV'], eng.workspace['costF'],
+                        (eng.workspace['turn_seq'])))
+        # print('Process: {}, steps: {}, tracking error: {:.3f}'.format(self.p, int(eng.workspace['i']-1), eng.workspace['costT']))
         cost = eng.workspace['cost']
         # eng.quit()
         return cost

@@ -113,8 +113,9 @@ class Environment():
             eng.workspace['i'] = eng.workspace['i'] + 1
             # "cost: ", round(eng.workspace['cost'],4),
         # print("Process: ", self.p, "steps: ", int(eng.workspace['i']-1), "tracking error: ", round(eng.workspace['costT'],3))
-        print('Process: {}, steps: {}, pos tracking: {:.3f}, vel tracking: {:.3f}, max force: {:.3f}'.format(self.p, 
-                        int(eng.workspace['i']-1), eng.workspace['costT'], eng.workspace['costV'], eng.workspace['costF']))
+        print('Process: {}, steps: {}, pos tracking: {:.3f}, vel tracking: {:.3f}, max force: {:.3f}, turn_sequence: {}'.format(self.p, 
+                        int(eng.workspace['i']-1), eng.workspace['costT'], eng.workspace['costV'], eng.workspace['costF'],
+                        eng.workspace['turn_seq']))
         # print('Process: {}, steps: {}, tracking error: {:.3f}, max force: {:.3f}'.format(self.p, int(eng.workspace['i']-1), eng.workspace['costT'],eng.workspace['costF']))
         cost = eng.workspace['cost']
         # eng.quit()

@@ -1,7 +1,7 @@
 {
     "example": "biped",
     "num_itr": 5000,
-    "num_trials": 24,
+    "num_trials": 8,
     "num_policy_eval": 4,
     "num_cpu": 8,
     "num_gpu": 0,
@@ -14,7 +14,7 @@
     "load_optimizer": false,
     "logging": true,
     "save_file_v": "biped",
-    "itr_start": 17,
+    "itr_start": 70,
     "start_seed": 100,
     "delta": 0.01,
     "time_step": 0.05,
@@ -36,7 +36,7 @@
     "y_min": 0,
     "x_min": -5,
     "x_max": 5,
-    "cost_min": 11.015054702758789,
+    "cost_min": 4.878603935241699,
     "reg_include": false,
     "load_prior": false,
     "num_steps": 25

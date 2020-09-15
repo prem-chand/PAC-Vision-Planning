@@ -46,7 +46,7 @@ class Compute_Cost_Matrix:
             nets = [policy]        
             
         # Need this start_method for parallelizing Pytorch models
-        mp.set_start_method('forkserver', force=True)
+        mp.set_start_method('spawn', force=True)
         process = []
         batch = self.batch
         manager = mp.Manager()
@@ -153,7 +153,8 @@ class Compute_Cost_Matrix:
         # os.dup2(null_fds[0], 1)
         # os.dup2(null_fds[1], 2)
 
-        from envs.Biped_Env import Environment
+        # from envs.Biped_Env import Environment
+        from test3 import Environment
 
         # ENABLE PRINTING
         # os.dup2(save[0], 1)
@@ -161,7 +162,7 @@ class Compute_Cost_Matrix:
         # os.close(null_fds[0])
         # os.close(null_fds[1])
         
-        env = Environment(t0, num_steps, init_state, Fx0, Fy0, p_stance_foot0)
+        env = Environment(t0, num_steps, init_state, Fx0, Fy0, p_stance_foot0, proc_num)
         
         # Generate epsilons in here and compute multiple runs for the same environment
         for i in range(batch_size):
@@ -171,7 +172,7 @@ class Compute_Cost_Matrix:
             # if i>0:
                 
             np.random.seed(np_seed[i])
-            env.generate_trajectory()
+            #env.generate_trajectory()
             
             for j in range(num_policy_eval):
                 policy_params = mu + std*epsilon[j,:]
@@ -184,7 +185,7 @@ class Compute_Cost_Matrix:
                     p.data = policy_params[count:count+num_params_p].view(p.data.shape)
                     count+=num_params_p
                     
-                cost = env.compute_cost(policy)
+                cost = env.compute_cost(policy, torch_seed[i])
 
                 # cost, collision_cost, goal_cost, _ = env.execute_policy(policy,
                 #                                                      env.goal,
@@ -202,7 +203,7 @@ class Compute_Cost_Matrix:
 
         # Return the sum of all costs in the batch
         rd['all_emp_costs'+str(proc_num)] = all_emp_costs
-        env.quit_matlab_engine()
+        # env.quit_matlab_engine()
 
     @staticmethod
     def quadrotor_thread(params, nets, device, mu, std, batch_size, np_seed, 

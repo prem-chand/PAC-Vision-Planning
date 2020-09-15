@@ -11,15 +11,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class Policy(nn.Module):
-    def __init__(self, state_dim=8, num_prim=7):
+    def __init__(self, state_dim=8, num_prim=13):
         # state-dim = 18(robot-state) + 2(F_x,F_y)
         super(Policy,self).__init__()
         self.pipe = nn.Sequential(
-            nn.Linear(state_dim,24),
+            nn.Linear(state_dim,12),
             nn.ELU(),
-            nn.Linear(24,16),
+            nn.Linear(12,24),
             nn.ELU(),
-            nn.Linear(16,num_prim),
+            nn.Linear(24,num_prim),
             nn.Softmax(dim=1),            
             )
         

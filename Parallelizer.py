@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import multiprocessing as mp
+import torch.multiprocessing as mp
 import numpy as np
 import torch
 import os
@@ -46,7 +46,7 @@ class Compute_Loss:
             nets = [policy]
             
         # Need this start_method for parallelizing Pytorch models
-        mp.set_start_method('forkserver', force=True)
+        mp.set_start_method('spawn', force=True)
         process = []
         batch = self.batch
         manager = mp.Manager()
