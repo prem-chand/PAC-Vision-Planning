@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Wed Jul 29 10:47:47 2020
+Created on Mon Jul 27 20:43:00 2020
 
 @author: premchand
 """
 
 import torch
-# import torch.nn as nn
-# import math
-# from os.path import join
-# import scipy.io as io
+import torch.nn as nn
+import math
+from os.path import join
+import scipy.io as io
 import numpy as np
-# from policy.biped_policy import Policy
+from policy.biped_policy import Policy
 import matlab.engine
 # eng = matlab.engine.start_matlab()
 
@@ -31,7 +31,7 @@ class Environment():
         self.p = proc_num
         # eng = matlab.engine.start_matlab()
         
-    def compute_cost(self, policy, seed):
+    def compute_cost(self, policy):
         # proc_id = 'p'+ self.p
         eng = matlab.engine.start_matlab()
         # eng = matlab.engine.start_matlab(background=True)
@@ -41,13 +41,13 @@ class Environment():
         eng.cd('/Users/premchand/Downloads/GitHub/PAC_biped_matlab')   
         eng.addpath(eng.genpath(eng.pwd()))
         
-        eng.workspace['s'] = seed
-        eng.sim_noise0(nargout = 0)
+        eng.workspace['s'] = self.s
+        eng.simulation0(nargout = 0)
         
         actions = {}
         actions[self.p] = []
         
-        while (eng.workspace['i'] <= self.num_steps):
+        while (eng.workspace['i'] <= eng.workspace['num_steps']):
             x0 = eng.workspace['x0']
             int_F_x = eng.workspace['int_F_x']
             int_F_y = eng.workspace['int_F_y']
@@ -65,8 +65,8 @@ class Environment():
             switch_count = int(eng.workspace['switch_count'])
             if eng.workspace['i'] == eng.workspace['vel_switch'][0][switch_count-1]:
                 # print("te2: ",eng.workspace['te2'])
-                # print("te2: ", eng.workspace['te2'], "engine: ", eng)
-                # print("t_switch_vel: ",eng.workspace['t_switch_vel'])
+                print("te2: ", eng.workspace['te2'], "engine: ", eng)
+                print("t_switch_vel: ",eng.workspace['t_switch_vel'])
                 eng.workspace['t_switch_vel'] = eng.workspace['t_switch_vel'] + eng.workspace['t_start']
                 eng.workspace['t_start'] = matlab.double([0])
                 eng.workspace['pL_start'] = eng.workspace['simout']['lead'][-1]        
@@ -80,18 +80,16 @@ class Environment():
                 # print(eng.workspace['actions'][0][res1-1])
                 eng.workspace['turn'] = eng.workspace['actions'][0][res1-1]
         
-            eng.sim_noise1(nargout = 0)
-            if eng.size(eng.workspace['te1'],1) == 1:            
-                eng.sim_noise2(nargout = 0)
-                if eng.size(eng.workspace['te2'],1) == 1:
-                    eng.sim_noise3(nargout = 0)
+            eng.simulation1(nargout = 0)
+            if eng.size(eng.workspace['te1'],1) != 0:            
+                eng.simulation2(nargout = 0)
+                if eng.size(eng.workspace['te2'],1) != 0:
+                    eng.simulation3(nargout = 0)
                 else:
-                    # eng.workspace['cost'] = 5000/eng.workspace['i']
-                    # eng.workspace['cost'] = 50
+                    eng.workspace['cost'] = 1000
                     break
             else:
-                # eng.workspace['cost'] = 5000/eng.workspace['i']
-                # eng.workspace['cost'] = 50
+                eng.workspace['cost'] = 1000
                 break
                     
             # eng.simulation1(nargout = 0)
@@ -109,18 +107,17 @@ class Environment():
             
             # data.append(eng.workspace)
             eng.workspace['i'] = eng.workspace['i'] + 1
-            # "cost: ", round(eng.workspace['cost'],4),
-        # print("Process: ", self.p, "steps: ", int(eng.workspace['i']-1), "tracking error: ", round(eng.workspace['costT'],3))
-        print('Process: {}, steps: {}, tracking error: {:.3f}'.format(self.p, int(eng.workspace['i']-1), eng.workspace['costT']))
+            
+        # print(eng.workspace['cost'])
         cost = eng.workspace['cost']
         # eng.quit()
         return cost
         
         
-    def generate_trajectory(self):
+    # def generate_trajectory(self):
         
-        eng.cd('/Users/premchand/Downloads/GitHub/PAC_biped_matlab/trajectory')        
-        eng.gen_vL(self.s,nargout = 0) 
+    #     eng.cd('/Users/premchand/Downloads/GitHub/PAC_biped_matlab/trajectory')        
+    #     eng.gen_vL(self.s,nargout = 0) 
         
     # def quit_matlab_engine(self):
     #     eng.quit()

@@ -48,13 +48,15 @@ class Environment():
         actions[self.p] = []
         
         while (eng.workspace['i'] <= self.num_steps):
-            x0 = eng.workspace['x0']
+            x0 = eng.workspace['ye2_u']
+            speed_vec = eng.workspace['speed_vector']
             int_F_x = eng.workspace['int_F_x']
             int_F_y = eng.workspace['int_F_y']
             x1 = torch.as_tensor(x0)
+            speed_v = torch.as_tensor(speed_vec)
             F_x = torch.as_tensor([[int_F_x]])
             F_y = torch.as_tensor([[int_F_y]])
-            inputs = torch.cat((x1, F_x, F_y),dim = 0)
+            inputs = torch.cat((x1, speed_v, F_x, F_y),dim = 0)
             inputs = torch.transpose(inputs,0,1)
             res = policy(inputs)[0]
             res1 = int(res.max(0).indices + 1)              
@@ -81,9 +83,9 @@ class Environment():
                 eng.workspace['turn'] = eng.workspace['actions'][0][res1-1]
         
             eng.sim_noise1(nargout = 0)
-            if eng.size(eng.workspace['te1'],1) == 1:            
+            if eng.size(eng.workspace['te1'],1) == 1 and eng.workspace['delta_t'] >= 0.3:            
                 eng.sim_noise2(nargout = 0)
-                if eng.size(eng.workspace['te2'],1) == 1:
+                if eng.size(eng.workspace['te2'],1) == 1 and eng.workspace['delta_t'] >= 0.3:
                     eng.sim_noise3(nargout = 0)
                 else:
                     # eng.workspace['cost'] = 5000/eng.workspace['i']
@@ -111,7 +113,9 @@ class Environment():
             eng.workspace['i'] = eng.workspace['i'] + 1
             # "cost: ", round(eng.workspace['cost'],4),
         # print("Process: ", self.p, "steps: ", int(eng.workspace['i']-1), "tracking error: ", round(eng.workspace['costT'],3))
-        print('Process: {}, steps: {}, tracking error: {:.3f}'.format(self.p, int(eng.workspace['i']-1), eng.workspace['costT']))
+        print('Process: {}, steps: {}, pos tracking: {:.3f}, vel tracking: {:.3f}, max force: {:.3f}'.format(self.p, 
+                        int(eng.workspace['i']-1), eng.workspace['costT'], eng.workspace['costV'], eng.workspace['costF']))
+        # print('Process: {}, steps: {}, tracking error: {:.3f}, max force: {:.3f}'.format(self.p, int(eng.workspace['i']-1), eng.workspace['costT'],eng.workspace['costF']))
         cost = eng.workspace['cost']
         # eng.quit()
         return cost

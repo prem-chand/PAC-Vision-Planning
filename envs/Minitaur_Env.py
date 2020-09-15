@@ -3,10 +3,10 @@
 import os
 
 # SUPPRESS PRINTING
-null_fds = [os.open(os.devnull, os.O_RDWR) for x in range(2)]
-save = os.dup(1), os.dup(2)
-os.dup2(null_fds[0], 1)
-os.dup2(null_fds[1], 2)
+# null_fds = [os.open(os.devnull, os.O_RDWR) for x in range(2)]
+# save = os.dup(1), os.dup(2)
+# os.dup2(null_fds[0], 1)
+# os.dup2(null_fds[1], 2)
 
 import numpy as np
 from pybullet_envs.minitaur.envs import minitaur_gym_env
@@ -21,10 +21,10 @@ from pybullet_envs.minitaur.envs import minitaur
 minitaur.INIT_POSITION = [0, 0, 0.2]
 
 # ENABLE PRINTING
-os.dup2(save[0], 1)
-os.dup2(save[1], 2)
-os.close(null_fds[0])
-os.close(null_fds[1])
+# os.dup2(save[0], 1)
+# os.dup2(save[1], 2)
+# os.close(null_fds[0])
+# os.close(null_fds[1])
 
 class Environment:
 

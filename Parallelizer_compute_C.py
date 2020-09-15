@@ -9,9 +9,10 @@ warnings.filterwarnings('ignore')
 import pickle
 import matlab.engine
 
+
 class Compute_Cost_Matrix:
 
-    def __init__(self, num_trials, num_cpu=1, num_gpu=0, start_seed=0):
+    def __init__(self, num_trials, num_cpu=1, num_gpu=1, start_seed=0):
         # self.cores = mp.cpu_count()
         self.cores = num_cpu
         self.batch = [0 for _ in range(self.cores)]  # give each core the correct number of processes + data
@@ -42,7 +43,7 @@ class Compute_Cost_Matrix:
             from policy.biped_policy import Policy
             policy = Policy()
             policy.share_memory()
-            nets = [policy]
+            nets = [policy]        
             
         # Need this start_method for parallelizing Pytorch models
         mp.set_start_method('forkserver', force=True)
@@ -87,11 +88,12 @@ class Compute_Cost_Matrix:
                 process.append(mp.Process(target=self.minitaur_thread, args=(params, nets, device[device_list[j]],
                                                                              mu, std, batch[j], np_seed, torch_seed, 
                                                                              rd, j)))
+
             elif example == 'biped':
                 process.append(mp.Process(target=self.biped_thread, args=(params, nets, device[device_list[j]],
                                                                              mu, std, batch[j], np_seed, torch_seed, 
                                                                              rd, j)))
-
+                
             pos += batch[j]
             torch_pos += batch[j]
             process[j].start()
@@ -102,6 +104,7 @@ class Compute_Cost_Matrix:
         # Collect the epsilons along with cost (how to keep them separate from other environments?)
         all_emp_costs = []
         for i in range(self.cores):
+            print("cores: ",self.cores)
             # torch.cat misbehaves when there is a 0-dim tensor, hence view
             all_emp_costs.extend(rd['all_emp_costs'+str(i)])
             
@@ -112,7 +115,7 @@ class Compute_Cost_Matrix:
     @staticmethod
     def new_seed():
         return int(2 ** 32 * np.random.random_sample())
-    
+
     @staticmethod
     def biped_thread(params, nets, device, mu, std, batch_size, np_seed, 
                          torch_seed, rd, proc_num):
@@ -139,13 +142,24 @@ class Compute_Cost_Matrix:
         policy = nets[0]
         
         from ES_grad import compute_grad_ES
-        from envs.Biped_Env import Environment
         
         # creating objects
-        policy_eval_costs = torch.zeros(num_policy_eval*2)
-        grad_mu = torch.zeros(mu.numel())
-        grad_logvar = torch.zeros(std.numel())
-        batch_costs = torch.zeros(batch_size)
+        policy_eval_costs = torch.zeros(num_policy_eval)
+        all_emp_costs = torch.zeros(batch_size, num_policy_eval)
+        
+        # SUPPRESS PRINTING
+        # null_fds = [os.open(os.devnull, os.O_RDWR) for x in range(2)]
+        # save = os.dup(1), os.dup(2)
+        # os.dup2(null_fds[0], 1)
+        # os.dup2(null_fds[1], 2)
+
+        from envs.Biped_Env import Environment
+
+        # ENABLE PRINTING
+        # os.dup2(save[0], 1)
+        # os.dup2(save[1], 2)
+        # os.close(null_fds[0])
+        # os.close(null_fds[1])
         
         env = Environment(t0, num_steps, init_state, Fx0, Fy0, p_stance_foot0)
         
@@ -154,18 +168,13 @@ class Compute_Cost_Matrix:
             torch.manual_seed(torch_seed[i])
             epsilon = torch.randn((num_policy_eval, mu.numel()))
             epsilon = torch.cat([epsilon, -epsilon], dim=0)
-            # print(epsilon.shape)
             # if i>0:
-            
+                
             np.random.seed(np_seed[i])
             env.generate_trajectory()
             
-            for j in range(num_policy_eval*2):
-                if j == num_policy_eval*2:
-                    policy_params = mu
-                else:
-                    policy_params = mu + std*epsilon[j,:]
-
+            for j in range(num_policy_eval):
+                policy_params = mu + std*epsilon[j,:]
                 policy_params = policy_params.to(device)
                 
                 # LOAD POLICY_PARAMS
@@ -185,23 +194,15 @@ class Compute_Cost_Matrix:
                 #                                                      prim_horizon=prim_horizon,
                 #                                                      image_size=image_size,
                 #                                                      device=device)
-
+                # print(cost)
                 policy_eval_costs[j] = torch.Tensor([cost])
+                # policy_eval_costs[j] = cost
 
-            batch_costs[i] = policy_eval_costs.mean()
-
-            grad_mu_temp, grad_logvar_temp = compute_grad_ES(policy_eval_costs-policy_eval_costs.mean(), 
-                                                             epsilon, std, grad_method)
-                
-            grad_mu += grad_mu_temp
-            grad_logvar += grad_logvar_temp
-
-        # Gradient is computed for 1-loss, so return its negation as the true gradient
-        rd[proc_num] = [grad_mu, grad_logvar]
+            all_emp_costs[i] = policy_eval_costs
 
         # Return the sum of all costs in the batch
-        rd['costs'+str(proc_num)] = batch_costs
-
+        rd['all_emp_costs'+str(proc_num)] = all_emp_costs
+        env.quit_matlab_engine()
 
     @staticmethod
     def quadrotor_thread(params, nets, device, mu, std, batch_size, np_seed, 
@@ -219,31 +220,30 @@ class Compute_Cost_Matrix:
         prim_horizon = params['prim_horizon']
         num_policy_eval = params['num_policy_eval']
         alpha = params['alpha']
-        
+
         from envs.Quad_Simulator import Simulator
-        # print(num_policy_eval)
+
         '''import pybullet results in printing "pybullet build time: XXXX" for
         each process. The code below suppresses printing these messages.
         Source: https://stackoverflow.com/a/978264'''
         # SUPPRESS PRINTING
-        # null_fds = [os.open(os.devnull, os.O_RDWR) for x in range(2)]
-        # save = os.dup(1), os.dup(2)
-        # os.dup2(null_fds[0], 1)
-        # os.dup2(null_fds[1], 2)
+        null_fds = [os.open(os.devnull, os.O_RDWR) for x in range(2)]
+        save = os.dup(1), os.dup(2)
+        os.dup2(null_fds[0], 1)
+        os.dup2(null_fds[1], 2)
 
         from envs.Quad_Env import Environment
-        # print(num_policy_eval)
-        # # ENABLE PRINTING
-        # os.dup2(save[0], 1)
-        # os.dup2(save[1], 2)
-        # os.close(null_fds[0])
-        # os.close(null_fds[1])
+
+        # ENABLE PRINTING
+        os.dup2(save[0], 1)
+        os.dup2(save[1], 2)
+        os.close(null_fds[0])
+        os.close(null_fds[1])
 
         # creating objects
         policy_eval_costs = torch.zeros(num_policy_eval)
         all_emp_costs = torch.zeros(batch_size, num_policy_eval)
-        
-        
+
         policy = nets[0]
         DepthFilter = nets[1]
 
@@ -284,11 +284,12 @@ class Compute_Cost_Matrix:
                                                                           gen_new_env=False,
                                                                           rem_old_env=False,
                                                                           image_size=image_size)
+                print(cost)
 
                 policy_eval_costs[j] = torch.Tensor([cost])
 
             all_emp_costs[i] = policy_eval_costs
-        
+
         # Return the all costs in the batch
         rd['all_emp_costs'+str(proc_num)] = all_emp_costs
         env.p.disconnect()  # clean up instance
@@ -310,25 +311,25 @@ class Compute_Cost_Matrix:
         each process. The code below suppresses printing these messages.
         Source: https://stackoverflow.com/a/978264'''
         # SUPPRESS PRINTING
-        null_fds = [os.open(os.devnull, os.O_RDWR) for x in range(2)]
-        save = os.dup(1), os.dup(2)
-        os.dup2(null_fds[0], 1)
-        os.dup2(null_fds[1], 2)
+        # null_fds = [os.open(os.devnull, os.O_RDWR) for x in range(2)]
+        # save = os.dup(1), os.dup(2)
+        # os.dup2(null_fds[0], 1)
+        # os.dup2(null_fds[1], 2)
 
         from envs.Minitaur_Env import Environment 
 
-        # ENABLE PRINTING
-        os.dup2(save[0], 1)
-        os.dup2(save[1], 2)
-        os.close(null_fds[0])
-        os.close(null_fds[1])
+        # # ENABLE PRINTING
+        # os.dup2(save[0], 1)
+        # os.dup2(save[1], 2)
+        # os.close(null_fds[0])
+        # os.close(null_fds[1])
+        print(policy)
 
         # creating objects
         policy_eval_costs = torch.zeros(num_policy_eval)
         all_emp_costs = torch.zeros(batch_size, num_policy_eval)
 
         env = Environment(max_angle=max_angle, gui=False)
-
         # Generate epsilons in here and compute multiple runs for the same environment
         for i in range(batch_size):
             torch.manual_seed(torch_seed[i])
