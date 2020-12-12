@@ -1,18 +1,13 @@
 #!/usr/bin/env python3
 
-import multiprocessing as mp
+import torch.multiprocessing as mp
 import numpy as np
 import torch
 import os
 import warnings
 warnings.filterwarnings('ignore')
 import pickle
-
-import matlab.engine
-# import line_profiler
-# import atexit
-# profile = line_profiler.LineProfiler()
-# atexit.register(profile.print_stats)
+# import matlab.engine
 
 
 class Compute_Loss:
@@ -26,8 +21,7 @@ class Compute_Loss:
         self.num_trials = num_trials
         self.num_gpu = num_gpu
         self.start_seed = start_seed
-        
-    # @profile
+
     def compute(self, itr_num, params, mu, std):
 
         example = params['example']
@@ -93,7 +87,8 @@ class Compute_Loss:
             elif example == 'minitaur':
                 process.append(mp.Process(target=self.minitaur_thread, args=(params, nets, device[device_list[j]],
                                                                              mu, std, batch[j], np_seed, torch_seed, 
-                                                                             rd, j)))            
+                                                                             rd, j)))
+            
             elif example == 'biped':
                 process.append(mp.Process(target=self.biped_thread, args=(params, nets, device[device_list[j]],
                                                                              mu, std, batch[j], np_seed, torch_seed, 
@@ -111,8 +106,6 @@ class Compute_Loss:
         grad_logvar = torch.zeros(std.numel())
         emp_cost = []
         for i in range(self.cores):
-            # print(self.cores)
-            # print(rd)
             grad_mu += rd[i][0]
             grad_logvar += rd[i][1]
             
@@ -131,35 +124,22 @@ class Compute_Loss:
     def new_seed():
         return int(2 ** 32 * np.random.random_sample())
     
-    
     @staticmethod
-    # @profile
     def biped_thread(params, nets, device, mu, std, batch_size, np_seed, 
                          torch_seed, rd, proc_num):
         grad_method = params['grad_method']
         num_policy_eval = params['num_policy_eval']
-        
-        # p = 'eng'
-        # p = p + str(proc_num)
-        # print(p)
-        # p = matlab.engine.start_matlab(background=True)
-        # print(p)
-        # p.cd('/Users/premchand/Downloads/GitHub/3D-biped/old-code/executable/To python')
-        # data = eng.get_init_data(nargout=11)
-        
-        with open('data.pickle', 'rb') as f:
-            data = pickle.load(f)
-        
         num_steps = params['num_steps']
-        t0 = data[0]
-        init_state = data[1]
-        Fx0 = torch.as_tensor([[data[9]]])
-        Fy0 = torch.as_tensor([[data[10]]])
-        p_stance_foot0 = data[5]
+        # init_state = params['init_state']
+        actions = params['actions']
+        # p_st_foot = params['p_st_foot']
+        
         policy = nets[0]
         
         from ES_grad import compute_grad_ES
         from envs.Biped_Env import Environment
+        
+        env = Environment(num_steps, actions, proc_num)
         
         # creating objects
         policy_eval_costs = torch.zeros(num_policy_eval*2)
@@ -167,18 +147,16 @@ class Compute_Loss:
         grad_logvar = torch.zeros(std.numel())
         batch_costs = torch.zeros(batch_size)
         
-        env = Environment(t0, num_steps, init_state, Fx0, Fy0, p_stance_foot0)
-        
+        # print(torch_seed)
         # Generate epsilons in here and compute multiple runs for the same environment
         for i in range(batch_size):
             torch.manual_seed(torch_seed[i])
             epsilon = torch.randn((num_policy_eval, mu.numel()))
             epsilon = torch.cat([epsilon, -epsilon], dim=0)
-            # print(epsilon.shape)
             # if i>0:
-            
+                
             np.random.seed(np_seed[i])
-            env.generate_trajectory()
+            # env.generate_trajectory()
             
             for j in range(num_policy_eval*2):
                 if j == num_policy_eval*2:
@@ -195,17 +173,8 @@ class Compute_Loss:
                     p.data = policy_params[count:count+num_params_p].view(p.data.shape)
                     count+=num_params_p
                     
-                cost = env.compute_cost(policy)
-
-                # cost, collision_cost, goal_cost, _ = env.execute_policy(policy,
-                #                                                      env.goal,
-                #                                                      alpha,
-                #                                                      time_step=time_step,
-                #                                                      comp_len=comp_len,
-                #                                                      prim_horizon=prim_horizon,
-                #                                                      image_size=image_size,
-                #                                                      device=device)
-
+                cost = env.compute_cost(policy, torch_seed[i])
+                
                 policy_eval_costs[j] = torch.Tensor([cost])
 
             batch_costs[i] = policy_eval_costs.mean()
@@ -221,205 +190,46 @@ class Compute_Loss:
 
         # Return the sum of all costs in the batch
         rd['costs'+str(proc_num)] = batch_costs
-                
-
-    @staticmethod
-    def quadrotor_thread(params, nets, device, mu, std, batch_size, np_seed, 
-                         torch_seed, rd, proc_num):
-        time_step = params['time_step']
-        image_size = params['image_size']
-        t_horizon = params['t_horizon']
-        r_lim = params['r_lim']
-        num_obs = params['num_obs']
-        y_max=params['y_max']
-        y_min=params['y_min']
-        x_min=params['x_min']
-        x_max=params['x_max']
-        comp_len = params['comp_len']
-        prim_horizon = params['prim_horizon']
-        num_policy_eval = params['num_policy_eval']
-        alpha = params['alpha']
-        grad_method = params['grad_method']
-
-        from envs.Quad_Simulator import Simulator
-        from ES_grad import compute_grad_ES
-
-        '''import pybullet results in printing "pybullet build time: XXXX" for
-        each process. The code below suppresses printing these messages.
-        Source: https://stackoverflow.com/a/978264'''
-        # SUPPRESS PRINTING
-        # null_fds = [os.open(os.devnull, os.O_RDWR) for x in range(2)]
-        # save = os.dup(1), os.dup(2)
-        # os.dup2(null_fds[0], 1)
-        # os.dup2(null_fds[1], 2)
-
-        from envs.Quad_Env import Environment
-
-        # ENABLE PRINTING
-        # os.dup2(save[0], 1)
-        # os.dup2(save[1], 2)
-        # os.close(null_fds[0])
-        # os.close(null_fds[1])
-
-        # creating objects
-        policy_eval_costs = torch.zeros(num_policy_eval*2)
-        grad_mu = torch.zeros(mu.numel())
-        grad_logvar = torch.zeros(std.numel())
-        batch_costs = torch.zeros(batch_size)
+        # env.quit_matlab_engine()        
         
-        policy = nets[0]
-        DepthFilter = nets[1]
-
-        for p in DepthFilter.parameters():
-            p.data = torch.ones_like(p.data)
-        DepthFilter = DepthFilter.to(device)
         
-        env = Environment(r_lim, num_obs, parallel=True,
-                          gui=False, y_max=y_max, y_min=y_min, x_min=x_min, x_max=x_max)
-        sim = Simulator(comp_len=comp_len, prim_horizon=prim_horizon, alpha=alpha, 
-                        dt=time_step, t_horizon=t_horizon, device=device)  # new env for this thread to use
-
-        # Generate epsilons in here and compute multiple runs for the same environment
-        for i in range(batch_size):
-            torch.manual_seed(torch_seed[i])
-            epsilon = torch.randn((num_policy_eval, mu.numel()))
-            epsilon = torch.cat([epsilon, -epsilon], dim=0)
-            if i>0:
-                env.p.removeBody(env.obsUid)
-                # Initialize the robot back to the initial point for collision check with obstacle map 
-                state = env.init_position
-                quat = env.init_orientation
-                env.p.resetBasePositionAndOrientation(env.quadrotor, [state[0], state[1], state[2]], quat)
-
-            np.random.seed(np_seed[i])
-            env.generate_safe_initial_env(1.25)
-
-            for j in range(num_policy_eval*2):
-                if j == num_policy_eval*2:
-                    policy_params = mu
-                else:
-                    policy_params = mu + std*epsilon[j,:]
-
-                policy_params = policy_params.to(device)
-
-                # LOAD POLICY_PARAMS
-                count = 0
-                for p in policy.parameters():
-                    num_params_p = p.data.numel()
-                    p.data = policy_params[count:count+num_params_p].view(p.data.shape)
-                    count+=num_params_p
-                cost, collision_cost, goal_cost = sim.simulate_controller(env, policy, DepthFilter,
-                                                                          gen_new_env=False,
-                                                                          rem_old_env=False,
-                                                                          image_size=image_size)
-
-                policy_eval_costs[j] = torch.Tensor([cost])
-
-            batch_costs[i] = policy_eval_costs.mean()
-
-            grad_mu_temp, grad_logvar_temp = compute_grad_ES(policy_eval_costs-policy_eval_costs.mean(), 
-                                                             epsilon, std, grad_method)
-                
-            grad_mu += grad_mu_temp
-            grad_logvar += grad_logvar_temp
-
-        # Gradient is computed for 1-loss, so return its negation as the true gradient
-        rd[proc_num] = [grad_mu, grad_logvar]
-
-        # Return the sum of all costs in the batch
-        rd['costs'+str(proc_num)] = batch_costs
-        env.p.disconnect()  # clean up instance
         
-    @staticmethod
-    def minitaur_thread(params, nets, device, mu, std, batch_size, np_seed, torch_seed, rd, proc_num):
-        image_size = params['image_size']
-        max_angle = params['max_angle']
-        comp_len = params['comp_len']
-        prim_horizon = params['prim_horizon']
-        num_policy_eval = params['num_policy_eval']
-        alpha = params['alpha']
-        grad_method = params['grad_method']
-        time_step = params['time_step']
-        goal = params['goal']
-        policy = nets[0]
         
-        from ES_grad import compute_grad_ES
-
-        '''import pybullet results in printing "pybullet build time: XXXX" for
-        each process. The code below suppresses printing these messages.
-        Source: https://stackoverflow.com/a/978264'''
-        # SUPPRESS PRINTING
-        null_fds = [os.open(os.devnull, os.O_RDWR) for x in range(2)]
-        save = os.dup(1), os.dup(2)
-        os.dup2(null_fds[0], 1)
-        os.dup2(null_fds[1], 2)
-
-        from envs.Minitaur_Env import Environment 
-
-        # ENABLE PRINTING
-        os.dup2(save[0], 1)
-        os.dup2(save[1], 2)
-        os.close(null_fds[0])
-        os.close(null_fds[1])
-
-        # creating objects
-        policy_eval_costs = torch.zeros(num_policy_eval*2)
-        grad_mu = torch.zeros(mu.numel())
-        grad_logvar = torch.zeros(std.numel())
-        batch_costs = torch.zeros(batch_size)
-
-        env = Environment(max_angle=max_angle, gui=False)
-
-        # Generate epsilons in here and compute multiple runs for the same environment
-        for i in range(batch_size):
-            torch.manual_seed(torch_seed[i])
-            epsilon = torch.randn((num_policy_eval, mu.numel()))
-            epsilon = torch.cat([epsilon, -epsilon], dim=0)
-            if i>0:
-                env.p.removeBody(env.terrain)
-            env.goal = goal
-            np.random.seed(np_seed[i])
-            env.terrain = env.generate_steps()
-
-            for j in range(num_policy_eval*2):
-                # reset the robot back to starting point after each trial
-                env.minitaur_env.reset()
-                if j == num_policy_eval*2:
-                    policy_params = mu
-                else:
-                    policy_params = mu + std*epsilon[j,:]
-
-                policy_params = policy_params.to(device)
-
-                # LOAD POLICY_PARAMS
-                count = 0
-                for p in policy.parameters():
-                    num_params_p = p.data.numel()
-                    p.data = policy_params[count:count+num_params_p].view(p.data.shape)
-                    count+=num_params_p
-
-                cost, collision_cost, goal_cost, _ = env.execute_policy(policy,
-                                                                     env.goal,
-                                                                     alpha,
-                                                                     time_step=time_step,
-                                                                     comp_len=comp_len,
-                                                                     prim_horizon=prim_horizon,
-                                                                     image_size=image_size,
-                                                                     device=device)
-
-                policy_eval_costs[j] = torch.Tensor([cost])
-
-            batch_costs[i] = policy_eval_costs.mean()
-
-            grad_mu_temp, grad_logvar_temp = compute_grad_ES(policy_eval_costs-policy_eval_costs.mean(), 
-                                                             epsilon, std, method=grad_method)
-
-            grad_mu += grad_mu_temp
-            grad_logvar += grad_logvar_temp
-
-        # Gradient is computed for 1-loss, so return its negation as the true gradient
-        rd[proc_num] = [grad_mu, grad_logvar]
-
-        # Return the sum of all costs in the batch
-        rd['costs'+str(proc_num)] = batch_costs
-        env.p.disconnect()  # clean up instance
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        

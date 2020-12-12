@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Jan 24 15:43:28 2021
+
+@author: rhaegar
+"""
+
+#!/usr/bin/env python3
 
 import multiprocessing as mp
 import numpy as np
@@ -6,12 +14,10 @@ import torch
 import os
 import warnings
 warnings.filterwarnings('ignore')
-import pickle
-import matlab.engine
 
 class Compute_Cost_Matrix:
 
-    def __init__(self, num_trials, num_cpu=1, num_gpu=0, start_seed=0):
+    def __init__(self, num_trials, num_cpu=1, num_gpu=1, start_seed=0):
         # self.cores = mp.cpu_count()
         self.cores = num_cpu
         self.batch = [0 for _ in range(self.cores)]  # give each core the correct number of processes + data
@@ -55,26 +61,14 @@ class Compute_Cost_Matrix:
         device = [torch.device('cuda:'+str(i)) for i in range(self.num_gpu)]
 
         # Assumption: num_cpu_cores >= num_gpu
-        if self.num_gpu>0:
-            device = [torch.device('cuda:'+str(i)) for i in range(self.num_gpu)]
-            # Assumption: num_cpu_cores >= num_gpu
-            device_list = [0] * self.cores
-            for i in range(self.cores):
-               # device_counter[i % self.num_gpu] += 1
-               device_list[i] = i % self.num_gpu
-        else:
-            device = [torch.device('cpu')]
-            device_list = [0] * self.cores
+        device_list = [0] * self.cores
+        for i in range(self.cores):
+            # device_counter[i % self.num_gpu] += 1
+            device_list[i] = i % self.num_gpu
 
         for j in range(self.cores):
             
-            # Generate seeds at random with no regard to repeatability
-            # torch_seed = [self.new_seed() for i in range(batch[j])]
-            
-            # Generate the same seeds for every instance of training for comparison
-            # of hyperparameters; the seeds differ with the iteration number.
-            torch_seed = list(range(itr_num*self.num_trials + torch_pos, 
-                                    itr_num*self.num_trials + torch_pos + batch[j]))
+            torch_seed = 0
 
             # Fixing the np_seed fixes the enviroment
             np_seed = list(range(pos,pos+batch[j]))
@@ -116,58 +110,29 @@ class Compute_Cost_Matrix:
     @staticmethod
     def biped_thread(params, nets, device, mu, std, batch_size, np_seed, 
                          torch_seed, rd, proc_num):
-        grad_method = params['grad_method']
         num_policy_eval = params['num_policy_eval']
-        
-        # p = 'eng'
-        # p = p + str(proc_num)
-        # print(p)
-        # p = matlab.engine.start_matlab(background=True)
-        # print(p)
-        # p.cd('/Users/premchand/Downloads/GitHub/3D-biped/old-code/executable/To python')
-        # data = eng.get_init_data(nargout=11)
-        
-        with open('data.pickle', 'rb') as f:
-            data = pickle.load(f)
-        
         num_steps = params['num_steps']
-        t0 = data[0]
-        init_state = data[1]
-        Fx0 = torch.as_tensor([[data[9]]])
-        Fy0 = torch.as_tensor([[data[10]]])
-        p_stance_foot0 = data[5]
+        actions = params['actions']
         policy = nets[0]
         
-        from ES_grad import compute_grad_ES
         from envs.Biped_Env import Environment
         
         # creating objects
-        policy_eval_costs = torch.zeros(num_policy_eval*2)
-        grad_mu = torch.zeros(mu.numel())
-        grad_logvar = torch.zeros(std.numel())
-        batch_costs = torch.zeros(batch_size)
+        policy_eval_costs = torch.zeros(num_policy_eval)
+        all_emp_costs = torch.zeros(batch_size, num_policy_eval)
         
-        env = Environment(t0, num_steps, init_state, Fx0, Fy0, p_stance_foot0)
+        env = Environment(num_steps, actions, proc_num, device=device)
         
-        # Generate epsilons in here and compute multiple runs for the same environment
+        torch.manual_seed(torch_seed)
+        epsilon = torch.randn((num_policy_eval, mu.numel()))
+        
         for i in range(batch_size):
-            torch.manual_seed(torch_seed[i])
-            epsilon = torch.randn((num_policy_eval, mu.numel()))
-            epsilon = torch.cat([epsilon, -epsilon], dim=0)
-            # print(epsilon.shape)
-            # if i>0:
-            
             np.random.seed(np_seed[i])
-            env.generate_trajectory()
             
-            for j in range(num_policy_eval*2):
-                if j == num_policy_eval*2:
-                    policy_params = mu
-                else:
-                    policy_params = mu + std*epsilon[j,:]
-
+            for j in range(num_policy_eval):
+                policy_params = mu + std*epsilon[j,:]
                 policy_params = policy_params.to(device)
-                
+
                 # LOAD POLICY_PARAMS
                 count = 0
                 for p in policy.parameters():
@@ -175,33 +140,14 @@ class Compute_Cost_Matrix:
                     p.data = policy_params[count:count+num_params_p].view(p.data.shape)
                     count+=num_params_p
                     
-                cost = env.compute_cost(policy)
-
-                # cost, collision_cost, goal_cost, _ = env.execute_policy(policy,
-                #                                                      env.goal,
-                #                                                      alpha,
-                #                                                      time_step=time_step,
-                #                                                      comp_len=comp_len,
-                #                                                      prim_horizon=prim_horizon,
-                #                                                      image_size=image_size,
-                #                                                      device=device)
-
+                cost = env.compute_cost(policy, np_seed[i], torch_seed)
                 policy_eval_costs[j] = torch.Tensor([cost])
-
-            batch_costs[i] = policy_eval_costs.mean()
-
-            grad_mu_temp, grad_logvar_temp = compute_grad_ES(policy_eval_costs-policy_eval_costs.mean(), 
-                                                             epsilon, std, grad_method)
-                
-            grad_mu += grad_mu_temp
-            grad_logvar += grad_logvar_temp
-
-        # Gradient is computed for 1-loss, so return its negation as the true gradient
-        rd[proc_num] = [grad_mu, grad_logvar]
+            
+            all_emp_costs[i] = policy_eval_costs
 
         # Return the sum of all costs in the batch
-        rd['costs'+str(proc_num)] = batch_costs
-
+        rd['all_emp_costs'+str(proc_num)] = all_emp_costs
+        
 
     @staticmethod
     def quadrotor_thread(params, nets, device, mu, std, batch_size, np_seed, 
@@ -219,31 +165,30 @@ class Compute_Cost_Matrix:
         prim_horizon = params['prim_horizon']
         num_policy_eval = params['num_policy_eval']
         alpha = params['alpha']
-        
+
         from envs.Quad_Simulator import Simulator
-        # print(num_policy_eval)
+
         '''import pybullet results in printing "pybullet build time: XXXX" for
         each process. The code below suppresses printing these messages.
         Source: https://stackoverflow.com/a/978264'''
         # SUPPRESS PRINTING
-        # null_fds = [os.open(os.devnull, os.O_RDWR) for x in range(2)]
-        # save = os.dup(1), os.dup(2)
-        # os.dup2(null_fds[0], 1)
-        # os.dup2(null_fds[1], 2)
+        null_fds = [os.open(os.devnull, os.O_RDWR) for x in range(2)]
+        save = os.dup(1), os.dup(2)
+        os.dup2(null_fds[0], 1)
+        os.dup2(null_fds[1], 2)
 
         from envs.Quad_Env import Environment
-        # print(num_policy_eval)
-        # # ENABLE PRINTING
-        # os.dup2(save[0], 1)
-        # os.dup2(save[1], 2)
-        # os.close(null_fds[0])
-        # os.close(null_fds[1])
+
+        # ENABLE PRINTING
+        os.dup2(save[0], 1)
+        os.dup2(save[1], 2)
+        os.close(null_fds[0])
+        os.close(null_fds[1])
 
         # creating objects
         policy_eval_costs = torch.zeros(num_policy_eval)
         all_emp_costs = torch.zeros(batch_size, num_policy_eval)
-        
-        
+
         policy = nets[0]
         DepthFilter = nets[1]
 
@@ -258,7 +203,7 @@ class Compute_Cost_Matrix:
 
         # Generate epsilons in here and compute multiple runs for the same environment
         for i in range(batch_size):
-            torch.manual_seed(torch_seed[i])
+            torch.manual_seed(torch_seed)
             epsilon = torch.randn((num_policy_eval, mu.numel()))
             if i>0:
                 env.p.removeBody(env.obsUid)
@@ -288,7 +233,7 @@ class Compute_Cost_Matrix:
                 policy_eval_costs[j] = torch.Tensor([cost])
 
             all_emp_costs[i] = policy_eval_costs
-        
+
         # Return the all costs in the batch
         rd['all_emp_costs'+str(proc_num)] = all_emp_costs
         env.p.disconnect()  # clean up instance
@@ -329,21 +274,29 @@ class Compute_Cost_Matrix:
 
         env = Environment(max_angle=max_angle, gui=False)
 
-        # Generate epsilons in here and compute multiple runs for the same environment
+        torch.manual_seed(torch_seed)
+        epsilon = torch.randn((num_policy_eval, mu.numel()))
+        # if proc_num==0:
+        #     print(epsilon)
+        #     print(std)
+        
+        total_rollouts = batch_size * num_policy_eval
+
         for i in range(batch_size):
-            torch.manual_seed(torch_seed[i])
-            epsilon = torch.randn((num_policy_eval, mu.numel()))
             if i>0:
                 env.p.removeBody(env.terrain)
             env.goal = goal
             np.random.seed(np_seed[i])
             env.terrain = env.generate_steps()
+            
+            print("Process: {}, Done: {}%".format(proc_num, (i*num_policy_eval*100)/total_rollouts))
 
             for j in range(num_policy_eval):
                 # reset the robot back to starting point after each trial
+                env.minitaur_env.seed(np_seed[i])
                 env.minitaur_env.reset()
                 policy_params = mu + std*epsilon[j,:]
-
+                # print(policy_params)
                 policy_params = policy_params.to(device)
 
                 # LOAD POLICY_PARAMS
@@ -352,8 +305,8 @@ class Compute_Cost_Matrix:
                     num_params_p = p.data.numel()
                     p.data = policy_params[count:count+num_params_p].view(p.data.shape)
                     count+=num_params_p
-
-                cost, collision_cost, goal_cost, _ = env.execute_policy(policy,
+                    
+                cost, fall_cost, goal_cost, end_position = env.execute_policy(policy,
                                                                      env.goal,
                                                                      alpha,
                                                                      time_step=time_step,
@@ -361,7 +314,6 @@ class Compute_Cost_Matrix:
                                                                      prim_horizon=prim_horizon,
                                                                      image_size=image_size,
                                                                      device=device)
-                
                 policy_eval_costs[j] = torch.Tensor([cost])
 
             all_emp_costs[i] = policy_eval_costs
