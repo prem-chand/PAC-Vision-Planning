@@ -1,88 +1,110 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Tue Jul  7 19:25:16 2020
+Created on Sat Dec  5 11:23:34 2020
 
 @author: premchand
 """
-
 import torch
-import torch.nn as nn
-from os.path import join
 import numpy as np
-# from policy.biped_policy import BipedPolicy
 import matlab.engine
-import line_profiler
-import atexit
-profile = line_profiler.LineProfiler()
-atexit.register(profile.print_stats)
-
-# eng = matlab.engine.start_matlab()
-# eng.cd('/Users/premchand/Downloads/GitHub/3D-biped/old-code/executable/To python')
-# data = eng.get_init_data(nargout=11)
 
 class Environment():
-    def __init__(self,t0,num_steps,init_state,Fx0,Fy0,p_stance_foot0):
+    def __init__(self, num_steps, actions, proc_num, device = "cuda"):
         self.num_steps = num_steps
-        self.init_state = init_state
-        self.Fx0 = Fx0
-        self.Fy0 = Fy0
-        self.t0 = t0
-        self.p_stance_foot0 = p_stance_foot0
-        self.eng = matlab.engine.start_matlab()
-        self.s = np.random.randint(1000,5000)
-        # self.eng = p
-        
-    @profile
-    def compute_cost(self, policy):
-        
-        cost0 = 0
-        x0 = self.init_state
-        int_F_x = self.Fx0
-        int_F_y = self.Fy0
-        t0 = self.t0
-        p_stance_foot = self.p_stance_foot0
-        s = self.s
+        # self.init_state = init_state
+        self.actions = actions # dictionary of indexed primitives (in degs)
+        # self.p_st_foot = p_st_foot
+        self.p = proc_num
+        self.device = device
         
         
-        self.eng.cd('/Users/premchand/Downloads/GitHub/3D-biped/old-code/executable/To python')
-        for i in range(self.num_steps):
-            x1 = torch.as_tensor(x0)
-            inputs = torch.cat((x1,int_F_x,int_F_y),dim = 0)
-            inputs = torch.transpose(inputs,0,1)
-            res = policy(inputs)[0]
-            prim_idx = int(res.max(0).indices + 1)
-            # print(t0)
-            step_data = self.eng.simulate_step(t0,x0,prim_idx,p_stance_foot,s,nargout = 7)
-            next_state = step_data[0]
-            F_x = step_data[1]
-            F_y = step_data[2]
-            p_stance_foot = step_data[3]
-            te = step_data[4]
-            cost1 = step_data[5]
-            is_fallen = step_data[6]
-            if is_fallen:
+    def compute_cost(self, policy, seed, torch_seed):
+        try:
+            eng = matlab.engine.start_matlab()
+        except matlab.engine.EngineError: 
+            eng = matlab.engine.start_matlab()
+        eng.cd('/home/rhaegar/Github/3D_biped_updated/')
+        eng.addpath(eng.genpath(eng.pwd()))
+        
+        params = eng.gen_params(seed, nargout = 1)
+        
+        x2m = params['x0']
+        init_state = params['init_state']
+        # self.init_state + params["w_s"] # add random noise to the initial state
+        t = matlab.double([0])
+        p_st_foot = params['p_st_foot']
+        # actions = {} # define actions as an empty dictionary 
+        k = 1 # step counter
+        # d = 0
+        cost1, cost2, cost = 0, 0, 0
+        max_dev = 0
+        is_fallen = False
+        prim_seq = []
+        
+        while(k <= self.num_steps and is_fallen == False):
+            # pass the state vector to the policy 
+            res = policy(torch.tensor(init_state).view(1,20).to(self.device))[0]
+            # choose the largest componet of res
+            res = int(res.max(0).indices)
+            # pick  action according to the largest component
+            turn = self.actions[str(res)] # int value of turn in degrees (hope so) 
+            prim_seq.append(turn)
+            beta = eng.compute_beta(matlab.double([turn]), nargout = 1)
+            
+            out1 = eng.left_stance_transition(t, x2m, beta, p_st_foot, params, nargout = 5)
+            x1m = out1[0]
+            te1 = out1[1]
+            p_stance_footR = out1[2]
+            is_fallen = out1[3]
+            simL = out1[4]
+            t_float = np.float32(t)
+            if is_fallen == False and (te1-t_float) > 0.1:
+                Fxl = simL['Fx']
+                Fyl = simL['Fy']
+                cost1 += simL['cost']
+                max_dev = max(max_dev,simL['max_dev'])
+                out2 = eng.right_stance_transition(te1, x1m, beta, p_stance_footR, params, nargout = 5)
+                x2m = out2[0]
+                te2 = out2[1]
+                p_stance_footL = out2[2]
+                dist = np.linalg.norm(p_stance_footR)
+                is_fallen = out2[3]
+                simR = out2[4]
+                if is_fallen == False and (te2 - te1) > 0.1:
+                    Fxr = simR['Fx']
+                    Fyr = simR['Fy']
+                    cost2 += simR['cost']
+                    max_dev = max(max_dev,simR['max_dev'])
+                    dist = np.linalg.norm(p_stance_footL)
+                    
+                    Fx = Fxl + Fxr
+                    Fy = Fyl + Fyr
+                else:
+                    cost2 += 0
+                    is_fallen = True
+                    break
+            else:
+                is_fallen = True
+                cost1 += 0
                 break
-            cost0 = max(torch.as_tensor(cost0),torch.as_tensor(cost1))
-            
-            
-            t0 = te
-            x0 = next_state
-            int_F_x = torch.as_tensor([[F_x]])
-            int_F_y = torch.as_tensor([[F_y]])
-
-        return cost0
-        
-    def generate_trajectory(self):
-        self.eng.cd('/Users/premchand/Downloads/GitHub/3D-biped/old-code/executable/To python/trajectory_gen')
-        
-        traj = self.eng.gen_traj(self.s)
-        
-        return traj
+            init_state = np.concatenate((x2m, Fx, Fy) ,axis = None)
+            init_state = np.float32(init_state)
+            t = te2
+            p_st_foot = p_stance_footL
+            cost = (cost1 + cost2)/k**2
+            k = k+1
         
         
+        # if k<=25:
+        #     max_dev = 1
+        print('Policy seed: {}, Env: {}, steps: {}, dist: {:.3f}, max_dev: {:.3f}, cost: {:.3f}'.format(seed, 
+                                                        torch_seed, k, dist, max_dev,
+              # d, 
+               # cost))
+               max_dev/dist))
         
         
-        
-        
-        
+        eng.quit()
+        # return cost
+        return max_dev/dist
