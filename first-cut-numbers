@@ -1,0 +1,29 @@
+Quad PAC Bound: 0.3706285556528347
+New Emp Cost on Train Data: 0.11144245704489818
+R: 0.04495033429297056
+KL-inv PAC bound: 0.28669073163148606
+True Cost Estimate: 0.07903385342881007
+
+python compute_policy_costs.py --config_file configs/config_biped.json --start_seed 7301 --num_envs 100 --num_policies 20
+
+
+
+python PAC_Bayes_opt.py --config_file configs/config_biped.json --num_envs 500 --num_policies 20
+
+========================
+    Mc Allester Opt     
+========================
+McAllester PAC Bound: 0.20035771071547326
+New Emp Cost on Train Data: 0.09934760970537224
+R: 0.010203040375531828
+KL-inv PAC bound: 0.1703894868987381
+True Cost Estimate: 0.09881497012618799
+========================
+        Quad Opt        
+========================
+226.0
+Quad PAC Bound: 0.18647340593210107
+New Emp Cost on Train Data: 0.09732688614707671
+R: 0.010584868055409511
+KL-inv PAC bound: 0.16938771861900925
+True Cost Estimate: 0.09751613804002449

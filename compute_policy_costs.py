@@ -42,11 +42,11 @@ def compute_policy_costs(args):
     print('Number of Neural Network Parameters:', num_params)
     
     # Load prior
-    # mu_pr = torch.load('Weights/mu_'+str(load_prior_from)+'_best.pt')['0']
-    # logvar_pr = torch.load('Weights/logvar_'+str(load_prior_from)+'_best.pt')['0']
+    mu_pr = torch.load('backup/mu_'+str(load_prior_from)+'_best.pt')['0']
+    logvar_pr = torch.load('backup/logvar_'+str(load_prior_from)+'_best.pt')['0']
     
-    mu_pr = torch.load('Weights/mu_'+str(load_prior_from)+'_current.pt')['0']
-    logvar_pr = torch.load('Weights/logvar_'+str(load_prior_from)+'_current.pt')['0']
+    # mu_pr = torch.load('Weights/mu_'+str(load_prior_from)+'_current.pt')['0']
+    # logvar_pr = torch.load('Weights/logvar_'+str(load_prior_from)+'_current.pt')['0']
     
     mu = mu_pr
     logvar = logvar_pr
@@ -61,7 +61,7 @@ def compute_policy_costs(args):
     print("Time to compute all costs:", time.time()-start)
     
     C = emp_cost_stack.numpy()
-    np.save("Weights/C_"+save_file_v+".npy",C)
+    np.save("Weights/C_"+save_file_v+str(start_seed)+"-"+str(start_seed+num_trials)+".npy",C)
     
 
 if __name__ == "__main__":

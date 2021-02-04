@@ -172,16 +172,43 @@ if __name__ == "__main__":
     save_file_v = params['save_file_v']
     example = params['example']
     
-    C = np.load("Weights/C_"+save_file_v+".npy")
+    #################################################################################################
+    C_arr = []
+    C_max = 0
+    for j in range(5):# j \in {0,1,2,3,4}
+    	file = "Weights/C_biped"+str(7101+100*j)+"-"+str(7201+100*j)+".npy"
+    	C_arr.append(np.load(file))
+    	C_max = max(C_max,C_arr[j].max())
+    	# print(file)
+    # print(C_max)
+    C = np.concatenate((C_arr[0],C_arr[1],C_arr[2],C_arr[3],C_arr[4]),axis=0)
+    
+    C_arr_emp = []
+    for j in range(5):# j \in {0,1,2,3,4}
+    	file = "Weights/C_biped"+str(11000+100*j)+"-"+str(11100+100*j)+".npy"
+    	C_arr_emp.append(np.load(file))
+    	C_max = max(C_max,C_arr_emp[j].max())
+    	# print(file)
+    # print(C_max)
+    C_emp = np.concatenate((C_arr_emp[0],C_arr_emp[1],C_arr_emp[2],C_arr_emp[3],C_arr_emp[4]),axis=0)
+    scale_factor = max(C.max(),C_emp.max())
+    C = C/scale_factor
+    C_emp = C_emp/scale_factor
+    #################################################################################################
+    
+    # C = np.load("Weights/C_"+save_file_v+".npy")
+    # C = np.load("Weights/C_biped7101-7201.npy")
     
     if num_trials == -1:
         num_trials = C.shape[0]
         num_actions = C.shape[1]
     
-    C_emp = np.load("Weights/C_"+example+"_emp_test.npy")
+    # C_emp = np.load("Weights/C_"+example+"_emp_test.npy")
+    # C_emp = np.load("Weights/C_biped15101-15201_emp_test.npy")
     
     C = C[:num_trials,:num_actions]
     C_emp = C_emp[:,:num_actions]
+    # C = C/C_emp.max()
     
     p0 = np.ones(num_actions)/num_actions
 
